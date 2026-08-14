@@ -1,35 +1,12 @@
-from fastapi import FastAPI, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
-import uuid
 
 from database import engine, Base, SessionLocal
 import models
 
 
 app = FastAPI(title="QOS Platform API")
-
-@app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    request_id = str(uuid.uuid4())
-
-    response = await call_next(request)
-
-    response.headers["X-Request-ID"] = request_id
-
-    return response
-
-@app.exception_handler(IntegrityError)
-async def integrity_error_handler(request: Request, exc: IntegrityError):
-    return JSONResponse(
-        status_code=409,
-        content={
-            "error": "Database constraint violation",
-            "message": "The email may already be registered."
-        }
-    )
 
 
 # Create database tables
@@ -58,18 +35,6 @@ class RegisterRequest(BaseModel):
 def home():
     return {
         "message": "QOS Platform API is running"
-    }
-
-@app.get("/health")
-def health():
-    return {
-        "status": "healthy"
-    }
-
-@app.get("/ready")
-def ready():
-    return {
-        "status": "ready"
     }
 
 
