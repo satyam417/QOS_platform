@@ -4,12 +4,25 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import uuid
+from passlib.context import CryptContext
 
 from database import engine, Base, SessionLocal
 import models
 
 
 app = FastAPI(title="QOS Platform API")
+
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto"
+)
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 # Request ID middleware
@@ -94,7 +107,7 @@ def register(
     new_user = models.User(
         name=user.name,
         email=user.email,
-        password=user.password,
+        password=hash_password(user.password),
         role=user.role
     )
 
@@ -128,7 +141,7 @@ def login(
             }
         )
 
-    if existing_user.password != user.password:
+    if not verify_password(user.password, existing_user.password):
         return JSONResponse(
             status_code=401,
             content={
