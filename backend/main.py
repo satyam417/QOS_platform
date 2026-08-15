@@ -56,6 +56,10 @@ class RegisterRequest(BaseModel):
     password: str
     role: str
 
+# Login request model
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 # Home API
 @app.get("/")
@@ -103,4 +107,39 @@ def register(
         "name": new_user.name,
         "email": new_user.email,
         "role": new_user.role
+    }
+
+# Login API
+@app.post("/api/v1/auth/login")
+def login(
+    user: LoginRequest,
+    db: Session = Depends(get_db)
+):
+    existing_user = db.query(models.User).filter(
+        models.User.email == user.email
+    ).first()
+
+    if not existing_user:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": "Authentication failed",
+                "message": "Invalid email or password."
+            }
+        )
+
+    if existing_user.password != user.password:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": "Authentication failed",
+                "message": "Invalid email or password."
+            }
+        )
+
+    return {
+        "message": "Login successful",
+        "name": existing_user.name,
+        "email": existing_user.email,
+        "role": existing_user.role
     }
