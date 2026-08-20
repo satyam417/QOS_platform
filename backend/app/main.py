@@ -20,3 +20,10 @@ async def health():
     return {
         "status": "ok"
     }
+
+@app.get("/")
+async def root():
+    return {
+        "message": "QOS Platform API is running",
+        "status": "ok"
+    }
