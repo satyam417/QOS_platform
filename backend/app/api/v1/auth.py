@@ -49,6 +49,18 @@ from app.schemas.auth import (
     TokenResponse,
 )
 
+from fastapi import APIRouter, Depends, status
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.schemas.auth import (
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+)
+from app.services.auth import (
+    start_password_reset,
+    reset_password,
+)
 
 router = APIRouter(
     prefix="/auth",
@@ -385,4 +397,44 @@ def logout_all_devices(
     return {
         "message": "Logged out from all devices",
         "sessions_revoked": revoked_count,
+    }
+
+@router.post(
+    "/password/forgot",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+):
+    await start_password_reset(
+        db=db,
+        redis=redis,
+        email=payload.email,
+    )
+
+    return {
+        "message": "If an account exists, a password reset OTP has been sent."
+    }
+
+@router.post(
+    "/password/reset",
+    status_code=status.HTTP_200_OK,
+)
+async def password_reset(
+    payload: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+):
+    await reset_password(
+        db=db,
+        redis=redis,
+        email=payload.email,
+        otp=payload.otp,
+        new_password=payload.new_password,
+    )
+
+    return {
+        "message": "Password reset successfully."
     }

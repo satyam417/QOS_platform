@@ -5,6 +5,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -31,7 +32,7 @@ async def get_current_user(
         Depends(security),
     ],
     db: Annotated[
-        Session,
+        AsyncSession,
         Depends(get_db),
     ],
 ) -> User:

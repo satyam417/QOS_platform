@@ -17,6 +17,7 @@ from app.models.refresh_token import RefreshToken
 from app.models.user import User
 
 
+
 def create_tokens(
     user: User,
     db: Session,
@@ -204,3 +205,105 @@ def logout_all(
     db.commit()
 
     return len(tokens)
+
+import hashlib
+import secrets
+
+from fastapi import HTTPException, status
+from redis.asyncio import Redis
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.user import User
+from app.core.security import hash_password, verify_password
+
+
+PASSWORD_RESET_OTP_EXPIRE_SECONDS = 300
+
+
+def generate_otp() -> str:
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+def hash_otp(otp: str) -> str:
+    return hashlib.sha256(otp.encode()).hexdigest()
+
+
+async def start_password_reset(
+    db: AsyncSession,
+    redis: Redis,
+    email: str,
+) -> None:
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+
+    user = result.scalar_one_or_none()
+
+    # Don't reveal whether the account exists.
+    if not user:
+        return
+
+    otp = generate_otp()
+
+    redis_key = f"password_reset_otp:{email.lower()}"
+
+    await redis.setex(
+        redis_key,
+        PASSWORD_RESET_OTP_EXPIRE_SECONDS,
+        hash_otp(otp),
+    )
+
+    # Replace this with your actual email/SMS service.
+    print(f"Password reset OTP for {email}: {otp}")
+
+
+async def reset_password(
+    db: AsyncSession,
+    redis: Redis,
+    email: str,
+    otp: str,
+    new_password: str,
+) -> None:
+    email = email.lower()
+
+    redis_key = f"password_reset_otp:{email}"
+
+    stored_otp_hash = await redis.get(redis_key)
+
+    if not stored_otp_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP expired or invalid",
+        )
+
+    if isinstance(stored_otp_hash, bytes):
+        stored_otp_hash = stored_otp_hash.decode()
+
+    if not secrets.compare_digest(
+        stored_otp_hash,
+        hash_otp(otp),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OTP",
+        )
+
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to reset password",
+        )
+
+    user.password_hash = hash_password(new_password)
+
+    await db.commit()
+
+    # OTP can only be used once.
+    await redis.delete(redis_key)
