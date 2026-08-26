@@ -27,3 +27,19 @@ async def root():
         "message": "QOS Platform API is running",
         "status": "ok"
     }
+
+# customer Registeration and OTP verification service
+
+app = FastAPI(
+    title="QOS Platform API",
+)
+
+
+app.include_router(auth_router)
+
+
+@app.get("/")
+def root():
+    return {
+        "message": "QOS Platform API is running"
+    }
