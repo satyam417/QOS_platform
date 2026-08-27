@@ -2,6 +2,9 @@ from fastapi import FastAPI
 
 from app.api.v1.auth import router as auth_router
 
+from app.api.v1.customer import router as customer_router
+
+from app.models.address import Address
 
 app = FastAPI(
     title="MyApp API",
@@ -37,6 +40,7 @@ app = FastAPI(
 
 app.include_router(auth_router)
 
+app.include_router(customer_router)
 
 @app.get("/")
 def root():
