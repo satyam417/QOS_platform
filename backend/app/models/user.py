@@ -79,8 +79,8 @@ class User(Base):
 
 #customer Registeration and OTP verification service
 
-class User(Base):
-    __tablename__ = "users"
+class Customer(Base):
+    __tablename__ = "customers"
 
     id = Column(
         Integer,
