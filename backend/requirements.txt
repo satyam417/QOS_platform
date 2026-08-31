@@ -1,23 +1,37 @@
-from typing import Annotated
+# from typing import Annotated
 
-from fastapi import Depends
+# from fastapi import Depends
 
-from app.api.deps import require_roles
-from app.models.user import User, UserRole
+# from app.api.deps import require_roles
+# from app.models.user import User, UserRole
 
 
-@router.get("/vendor/dashboard")
-async def vendor_dashboard(
-    current_user: Annotated[
-        User,
-        Depends(
-            require_roles(UserRole.VENDOR)
-        ),
-    ],
-):
+# @router.get("/vendor/dashboard")
+# async def vendor_dashboard(
+#     current_user: Annotated[
+#         User,
+#         Depends(
+#             require_roles(UserRole.VENDOR)
+#         ),
+#     ],
+# ):
 
-    return {
-        "message": "Vendor dashboard",
-        "user_id": current_user.id,
-        "role": current_user.role.value,
-    }
+#     return {
+#         "message": "Vendor dashboard",
+#         "user_id": current_user.id,
+#         "role": current_user.role.value,
+#     }
+
+
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+pydantic[email]
+python-jose[cryptography]
+passlib[argon2]
+python-dotenv
+redis
+alembic
+python-multipart
+pydantic-settings
