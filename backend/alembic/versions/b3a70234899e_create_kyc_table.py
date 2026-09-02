@@ -1,7 +1,7 @@
 """create kyc table
 
 Revision ID: b3a70234899e
-Revises: f2393e33bc66
+Revises: 945815369613
 Create Date: 2026-08-26 18:22:45.803792
 
 """
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "b3a70234899e"
-down_revision: Union[str, Sequence[str], None] = "f2393e33bc66"
+down_revision: Union[str, Sequence[str], None] = "945815369613"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
