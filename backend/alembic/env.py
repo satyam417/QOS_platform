@@ -1,49 +1,34 @@
 from logging.config import fileConfig
-    
+
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
 
 from app.core.database import Base
-from app.models import user, refresh_token, vendor
 from app.core.config import settings
-
-# Import all models so Alembic can detect them
+from app.models import user, refresh_token, vendor
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
+from app.models.address import Address
 
 
-# Alembic Config object
 config = context.config
 
-
-# Configure Python logging
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-
-# Metadata used by Alembic for autogenerate
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    """
-    Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and does not create an Engine.
-    """
-
-    url = settings.DATABASE_URL
+    url = config.get_main_option("sqlalchemy.url")
 
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
-        dialect_opts={
-            "paramstyle": "named"
-        },
+        dialect_opts={"paramstyle": "named"},
     )
 
     with context.begin_transaction():
@@ -51,13 +36,6 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    """
-    Run migrations in 'online' mode.
-
-    This creates an Engine and runs migrations
-    against the database.
-    """
-
     configuration = config.get_section(
         config.config_ini_section,
         {},
@@ -72,7 +50,6 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -83,10 +60,6 @@ def run_migrations_online() -> None:
 
 
 if context.is_offline_mode():
-
     run_migrations_offline()
-
 else:
-    run_migrations_online()
-
     run_migrations_online()

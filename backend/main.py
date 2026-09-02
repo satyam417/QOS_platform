@@ -9,6 +9,8 @@ from passlib.context import CryptContext
 from database import engine, Base, SessionLocal
 import models
 
+from app.api.v1.auth import router as auth_router
+from app.api.v1.customer import router as customer_router
 
 app = FastAPI(title="QOS Platform API")
 

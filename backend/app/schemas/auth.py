@@ -56,7 +56,11 @@ class OTPSendRequest(BaseModel):
 class OTPVerifyRequest(BaseModel):
     email: EmailStr | None = None
 
-    phone: str | None = None
+    phone: str | None = Field(
+        default=None,
+        min_length=7,
+        max_length=20,
+    )
 
     otp: str = Field(
         min_length=6,
@@ -75,10 +79,12 @@ class TokenResponse(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
 
+
 class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(
         min_length=20
     )
+
 
 class LogoutRequest(BaseModel):
     refresh_token: str = Field(
@@ -92,5 +98,11 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
-    otp: str = Field(min_length=6, max_length=6)
-    new_password: str = Field(min_length=8, max_length=128)
+    otp: str = Field(
+        min_length=6,
+        max_length=6,
+    )
+    new_password: str = Field(
+        min_length=8,
+        max_length=128,
+    )

@@ -1,12 +1,7 @@
 from typing import Annotated
 
-from fastapi import (
-    APIRouter,
-    Depends,
-    HTTPException,
-    status,
-)
-
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -39,8 +34,8 @@ from app.services.auth import (
     logout,
     logout_all,
     refresh_access_token,
-    start_password_reset,
     reset_password,
+    start_password_reset,
 )
 
 from app.services.otp import OTPService
@@ -66,12 +61,8 @@ router = APIRouter(
 )
 def refresh_token(
     request: RefreshTokenRequest,
-    db: Annotated[
-        Session,
-        Depends(get_db),
-    ],
+    db: Annotated[Session, Depends(get_db)],
 ):
-
     result = refresh_access_token(
         refresh_token=request.refresh_token,
         db=db,
@@ -102,12 +93,8 @@ def refresh_token(
 )
 def register(
     request: RegisterRequest,
-    db: Annotated[
-        Session,
-        Depends(get_db),
-    ],
+    db: Annotated[Session, Depends(get_db)],
 ):
-
     email = (
         request.email.lower().strip()
         if request.email
@@ -126,7 +113,8 @@ def register(
             detail="Email or phone is required",
         )
 
-    # Never allow public admin registration
+    # Public registration can create customers or vendors,
+    # but never administrators.
     role = UserRole(request.role.value)
 
     if role == UserRole.ADMIN:
@@ -137,11 +125,8 @@ def register(
 
     # Check email
     if email:
-
         existing = db.scalar(
-            select(User).where(
-                User.email == email
-            )
+            select(User).where(User.email == email)
         )
 
         if existing:
@@ -152,11 +137,8 @@ def register(
 
     # Check phone
     if phone:
-
         existing = db.scalar(
-            select(User).where(
-                User.phone == phone
-            )
+            select(User).where(User.phone == phone)
         )
 
         if existing:
@@ -170,9 +152,7 @@ def register(
         name=request.name.strip(),
         email=email,
         phone=phone,
-        password_hash=hash_password(
-            request.password
-        ),
+        password_hash=hash_password(request.password),
         role=role,
         is_active=True,
         is_verified=False,
@@ -196,11 +176,12 @@ async def send_otp(
     request: OTPSendRequest,
     redis: Redis = Depends(get_redis),
 ):
-
     identifier = (
         request.email.lower().strip()
         if request.email
-        else request.phone
+        else request.phone.strip()
+        if request.phone
+        else None
     )
 
     if not identifier:
@@ -211,12 +192,11 @@ async def send_otp(
 
     otp_service = OTPService(redis)
 
-    await otp_service.send_otp(
-        identifier
-    )
+    otp = await otp_service.send_otp(identifier)
 
     return {
-        "message": "OTP sent successfully"
+        "message": "OTP sent successfully",
+        "otp": otp,
     }
 
 
@@ -236,11 +216,12 @@ async def verify_otp(
     ],
     redis: Redis = Depends(get_redis),
 ):
-
     identifier = (
         request.email.lower().strip()
         if request.email
-        else request.phone
+        else request.phone.strip()
+        if request.phone
+        else None
     )
 
     if not identifier:
@@ -303,12 +284,8 @@ async def verify_otp(
 )
 def login(
     request: LoginRequest,
-    db: Annotated[
-        Session,
-        Depends(get_db),
-    ],
+    db: Annotated[Session, Depends(get_db)],
 ):
-
     user = authenticate_user(
         identifier=request.identifier,
         password=request.password,
@@ -352,7 +329,7 @@ def login(
 # =========================================================
 
 @router.post(
-    "/logout"
+    "/logout",
 )
 def logout_user(
     request: LogoutRequest,
@@ -360,12 +337,8 @@ def logout_user(
         User,
         Depends(get_current_user),
     ],
-    db: Annotated[
-        Session,
-        Depends(get_db),
-    ],
+    db: Annotated[Session, Depends(get_db)],
 ):
-
     success = logout(
         refresh_token=request.refresh_token,
         user_id=current_user.id,
@@ -388,19 +361,15 @@ def logout_user(
 # =========================================================
 
 @router.post(
-    "/logout-all"
+    "/logout-all",
 )
 def logout_all_devices(
     current_user: Annotated[
         User,
         Depends(get_current_user),
     ],
-    db: Annotated[
-        Session,
-        Depends(get_db),
-    ],
+    db: Annotated[Session, Depends(get_db)],
 ):
-
     revoked_count = logout_all(
         user_id=current_user.id,
         db=db,
@@ -428,7 +397,6 @@ async def forgot_password(
     ],
     redis: Redis = Depends(get_redis),
 ):
-
     await start_password_reset(
         db=db,
         redis=redis,
@@ -459,9 +427,7 @@ async def password_reset(
     ],
     redis: Redis = Depends(get_redis),
 ):
-
     try:
-
         await reset_password(
             db=db,
             redis=redis,
@@ -471,7 +437,6 @@ async def password_reset(
         )
 
     except ValueError as exc:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
