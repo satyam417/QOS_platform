@@ -11,6 +11,9 @@ from app.core.config import settings
 # Import all models so Alembic can detect them
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
+from app.models.vendor import Vendor
+from app.models.address import Address
+from app.models.kyc import KYC
 
 
 # Alembic Config object
@@ -82,9 +85,6 @@ def run_migrations_online() -> None:
 
 
 if context.is_offline_mode():
-
     run_migrations_offline()
-
 else:
-
     run_migrations_online()

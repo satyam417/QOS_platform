@@ -82,7 +82,6 @@ def refresh_token(
             detail="Invalid or expired refresh token",
         )
 
-    # refresh_access_token returns a tuple
     access_token, refresh_token_value = result
 
     return TokenResponse(
@@ -214,10 +213,13 @@ async def send_otp(
 
     otp_service = OTPService(redis)
 
-    await otp_service.send_otp(identifier)
+    otp = await otp_service.send_otp(
+        identifier
+    )
 
     return {
-        "message": "OTP sent successfully"
+        "message": "OTP sent successfully",
+        "otp": otp,
     }
 
 
@@ -321,11 +323,8 @@ def login(
         Depends(get_db),
     ],
 ):
-    # IMPORTANT:
-    # authenticate_user expects:
-    # identifier, password, db
-    #
-    # Do NOT pass db as the first argument.
+    # Login accepts email or phone through
+    # the "identifier" field.
 
     authenticated_user = authenticate_user(
         request.identifier,
@@ -339,17 +338,29 @@ def login(
             detail="Invalid credentials",
         )
 
+    # -----------------------------------------------------
+    # Check active status
+    # -----------------------------------------------------
+
     if not authenticated_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is inactive",
         )
 
+    # -----------------------------------------------------
+    # Check verification status
+    # -----------------------------------------------------
+
     if not authenticated_user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is not verified",
         )
+
+    # -----------------------------------------------------
+    # Create tokens
+    # -----------------------------------------------------
 
     access_token, refresh_token_value = create_tokens(
         authenticated_user,

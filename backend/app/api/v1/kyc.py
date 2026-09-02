@@ -92,9 +92,7 @@ async def upload_kyc(
 
     # Save uploaded file
     with open(file_path, "wb") as buffer:
-
         while True:
-
             chunk = await document.read(1024 * 1024)
 
             if not chunk:
@@ -254,15 +252,9 @@ def review_kyc(
 
     # If approved, remove rejection reason
     if review.status == KYCStatus.APPROVED:
-
         kyc.rejection_reason = None
-
-    # If rejected, save rejection reason
     else:
-
-        kyc.rejection_reason = (
-            review.rejection_reason
-        )
+        kyc.rejection_reason = review.rejection_reason
 
     # Update KYC status
     kyc.status = review.status

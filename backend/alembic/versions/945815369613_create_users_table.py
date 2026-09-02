@@ -11,13 +11,23 @@ from alembic import op
 import sqlalchemy as sa
 
 
+# =========================================================
+# REVISION
+# =========================================================
+
 revision: str = "945815369613"
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+# =========================================================
+# UPGRADE
+# =========================================================
+
 def upgrade() -> None:
+    """Create users table."""
+
     op.create_table(
         "users",
 
@@ -115,7 +125,13 @@ def upgrade() -> None:
     )
 
 
+# =========================================================
+# DOWNGRADE
+# =========================================================
+
 def downgrade() -> None:
+    """Drop users table."""
+
     op.drop_index(
         "ix_users_phone",
         table_name="users",

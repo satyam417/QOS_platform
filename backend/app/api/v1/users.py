@@ -65,7 +65,6 @@ def get_user_by_id(
     )
 
     if user is None:
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
