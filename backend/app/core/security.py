@@ -1,3 +1,4 @@
+
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -32,7 +33,6 @@ def create_access_token(
     user_id: int,
     role: str,
 ) -> str:
-
     now = datetime.now(timezone.utc)
 
     payload = {
@@ -64,7 +64,6 @@ def hash_refresh_token(token: str) -> str:
 
 
 def decode_access_token(token: str) -> dict:
-
     try:
         payload = jwt.decode(
             token,
@@ -78,75 +77,7 @@ def decode_access_token(token: str) -> dict:
         return payload
 
     except JWTError as exc:
-        raise ValueError("Invalid or expired token") from exc
+        raise ValueError(
+            "Invalid or expired token"
+        ) from exc
 
-# Customer Registration Request Model
-
-pwd_context = CryptContext(
-    schemes=["bcrypt"],
-    deprecated="auto",
-)
-
-
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-
-def verify_password(
-    plain_password: str,
-    hashed_password: str,
-) -> bool:
-    return pwd_context.verify(
-        plain_password,
-        hashed_password,
-    )
-
-
-def create_access_token(
-    user_id: int,
-    secret_key: str,
-    expires_minutes: int = 30,
-) -> str:
-
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=expires_minutes
-    )
-
-    payload = {
-        "sub": str(user_id),
-        "type": "access",
-        "exp": expire,
-    }
-
-    return jwt.encode(
-        payload,
-        secret_key,
-        algorithm="HS256",
-    )
-
-
-def create_refresh_token(
-    user_id: int,
-    secret_key: str,
-    expires_days: int = 7,
-) -> str:
-
-    expire = datetime.now(timezone.utc) + timedelta(
-        days=expires_days
-    )
-
-    payload = {
-        "sub": str(user_id),
-        "type": "refresh",
-        "exp": expire,
-    }
-
-    return jwt.encode(
-        payload,
-        secret_key,
-        algorithm="HS256",
-    )
-
-
-def hash_refresh_token(token: str) -> str:
-    return pwd_context.hash(token)

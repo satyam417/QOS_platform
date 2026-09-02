@@ -214,12 +214,13 @@ async def send_otp(
 
     otp_service = OTPService(redis)
 
-    await otp_service.send_otp(
+    otp = await otp_service.send_otp(
         identifier
     )
 
     return {
-        "message": "OTP sent successfully"
+        "message": "OTP sent successfully",
+        "otp": otp,
     }
 
 #Verify OPT
@@ -441,209 +442,23 @@ async def password_reset(
 
 # Customer registration and OTP verification service
 
-from app.core.database import get_db
-from app.core.security import (
-    create_access_token,
-    create_refresh_token,
-    hash_password,
-    verify_password,
-)
-from app.models.user import User
-from app.schemas.auth import (
-    LoginRequest,
-    OTPRequest,
-    OTPVerifyRequest,
-    RegisterRequest,
-    RegisterResponse,
-    TokenResponse,
-)
-from app.services.otp import (
-    create_otp,
-    verify_otp,
-)
-
-
-router = APIRouter(
-    prefix="/api/v1/auth",
-    tags=["Authentication"],
-)
-
-
-# --------------------------------------------------
-# REGISTER
-# --------------------------------------------------
-
 @router.post(
-    "/register",
-    response_model=RegisterResponse,
+    "/password/reset",
+    status_code=status.HTTP_200_OK,
 )
-def register(
-    request: RegisterRequest,
-    db: Session = Depends(get_db),
+async def password_reset(
+    payload: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
 ):
-    existing_email = (
-        db.query(User)
-        .filter(User.email == request.email)
-        .first()
+    await reset_password(
+        db=db,
+        redis=redis,
+        email=payload.email,
+        otp=payload.otp,
+        new_password=payload.new_password,
     )
-
-    if existing_email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
-        )
-
-    existing_phone = (
-        db.query(User)
-        .filter(User.phone == request.phone)
-        .first()
-    )
-
-    if existing_phone:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Phone number already registered",
-        )
-
-    user = User(
-        name=request.name,
-        email=request.email,
-        phone=request.phone,
-        password_hash=hash_password(request.password),
-        is_verified=False,
-    )
-
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    # Generate OTP
-    create_otp(request.email)
-
-    return RegisterResponse(
-        message="Registration successful. OTP sent.",
-        user_id=user.id,
-        otp_required=True,
-    )
-
-
-# --------------------------------------------------
-# SEND OTP
-# --------------------------------------------------
-
-@router.post("/otp/send")
-def send_otp(
-    request: OTPRequest,
-):
-    create_otp(request.contact)
 
     return {
-        "message": "OTP sent successfully"
+        "message": "Password reset successfully."
     }
-
-
-# --------------------------------------------------
-# VERIFY OTP
-# --------------------------------------------------
-
-@router.post("/otp/verify")
-def verify_customer_otp(
-    request: OTPVerifyRequest,
-    db: Session = Depends(get_db),
-):
-
-    if not verify_otp(
-        request.contact,
-        request.otp,
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired OTP",
-        )
-
-    user = (
-        db.query(User)
-        .filter(User.email == request.contact)
-        .first()
-    )
-
-    if not user:
-        user = (
-            db.query(User)
-            .filter(User.phone == request.contact)
-            .first()
-        )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
-
-    user.is_verified = True
-
-    db.commit()
-
-    return {
-        "message": "OTP verified successfully",
-        "user_id": user.id,
-    }
-
-
-# --------------------------------------------------
-# LOGIN
-# --------------------------------------------------
-
-@router.post(
-    "/login",
-    response_model=TokenResponse,
-)
-def login(
-    request: LoginRequest,
-    db: Session = Depends(get_db),
-):
-
-    user = (
-        db.query(User)
-        .filter(User.email == request.email)
-        .first()
-    )
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
-
-    if not verify_password(
-        request.password,
-        user.password_hash,
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
-
-    if not user.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Please verify your OTP first",
-        )
-
-    # Change this to your actual secret key/config.
-    secret_key = "CHANGE_THIS_TO_YOUR_SECRET_KEY"
-
-    access_token = create_access_token(
-        user.id,
-        secret_key,
-    )
-
-    refresh_token = create_refresh_token(
-        user.id,
-        secret_key,
-    )
-
-    return TokenResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
-    )
