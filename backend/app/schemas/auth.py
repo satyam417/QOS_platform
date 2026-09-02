@@ -9,17 +9,24 @@ class RegisterRole(str, Enum):
 
 
 class RegisterRequest(BaseModel):
-    name: str = Field(min_length=2, max_length=100)
+    name: str = Field(
+        min_length=2,
+        max_length=100,
+    )
+
     email: EmailStr | None = None
+
     phone: str | None = Field(
         default=None,
         min_length=7,
         max_length=20,
     )
+
     password: str = Field(
         min_length=8,
         max_length=128,
     )
+
     role: RegisterRole = RegisterRole.CUSTOMER
 
 
@@ -38,6 +45,7 @@ class RegisterResponse(BaseModel):
 
 class OTPSendRequest(BaseModel):
     email: EmailStr | None = None
+
     phone: str | None = Field(
         default=None,
         min_length=7,
@@ -47,7 +55,13 @@ class OTPSendRequest(BaseModel):
 
 class OTPVerifyRequest(BaseModel):
     email: EmailStr | None = None
-    phone: str | None = None
+
+    phone: str | None = Field(
+        default=None,
+        min_length=7,
+        max_length=20,
+    )
+
     otp: str = Field(
         min_length=6,
         max_length=6,
@@ -67,11 +81,15 @@ class TokenResponse(BaseModel):
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str = Field(min_length=20)
+    refresh_token: str = Field(
+        min_length=20
+    )
 
 
 class LogoutRequest(BaseModel):
-    refresh_token: str = Field(min_length=20)
+    refresh_token: str = Field(
+        min_length=20
+    )
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -80,5 +98,11 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
-    otp: str = Field(min_length=6, max_length=6)
-    new_password: str = Field(min_length=8, max_length=128)
+    otp: str = Field(
+        min_length=6,
+        max_length=6,
+    )
+    new_password: str = Field(
+        min_length=8,
+        max_length=128,
+    )

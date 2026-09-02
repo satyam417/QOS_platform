@@ -4,9 +4,6 @@ from redis.asyncio import Redis
 
 from app.core.config import settings
 
-import random
-from datetime import datetime, timedelta, timezone
-
 
 class OTPService:
 
@@ -74,53 +71,3 @@ class OTPService:
         await self.redis.delete(key)
 
         return True
-
-#customer Registeration and OTP verification service
-
-# Temporary in-memory OTP storage.
-# Later this should be moved to Redis.
-otp_store: dict[str, dict] = {}
-
-
-def generate_otp() -> str:
-    return str(random.randint(100000, 999999))
-
-
-def create_otp(contact: str) -> str:
-    otp = generate_otp()
-
-    otp_store[contact] = {
-        "otp": otp,
-        "expires_at": (
-            datetime.now(timezone.utc)
-            + timedelta(minutes=5)
-        ),
-    }
-
-    # Development only.
-    # In production, send this through SMS/email.
-    print(f"OTP for {contact}: {otp}")
-
-    return otp
-
-
-def verify_otp(
-    contact: str,
-    otp: str,
-) -> bool:
-
-    record = otp_store.get(contact)
-
-    if not record:
-        return False
-
-    if datetime.now(timezone.utc) > record["expires_at"]:
-        del otp_store[contact]
-        return False
-
-    if record["otp"] != otp:
-        return False
-
-    del otp_store[contact]
-
-    return True
