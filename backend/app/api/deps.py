@@ -12,7 +12,16 @@ from app.core.security import decode_access_token
 from app.models.user import User, UserRole
 
 
+# =========================================================
+# HTTP AUTHENTICATION
+# =========================================================
+
 security = HTTPBearer()
+
+
+# =========================================================
+# REDIS
+# =========================================================
 
 redis_client = Redis.from_url(
     settings.REDIS_URL,
@@ -23,6 +32,10 @@ redis_client = Redis.from_url(
 def get_redis() -> Redis:
     return redis_client
 
+
+# =========================================================
+# CURRENT USER
+# =========================================================
 
 def get_current_user(
     credentials: Annotated[
@@ -35,6 +48,10 @@ def get_current_user(
     ],
 ) -> User:
 
+    # -----------------------------------------------------
+    # Decode access token
+    # -----------------------------------------------------
+
     try:
         payload = decode_access_token(
             credentials.credentials
@@ -43,7 +60,9 @@ def get_current_user(
         user_id = payload.get("sub")
 
         if not user_id:
-            raise ValueError()
+            raise ValueError(
+                "User ID missing from token"
+            )
 
     except (ValueError, TypeError):
 
@@ -55,17 +74,45 @@ def get_current_user(
             },
         )
 
+    # -----------------------------------------------------
+    # Find user in database
+    # -----------------------------------------------------
+
+    try:
+        user_id = int(user_id)
+
+    except (ValueError, TypeError):
+
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user ID in access token",
+            headers={
+                "WWW-Authenticate": "Bearer"
+            },
+        )
+
     user = db.scalar(
         select(User).where(
-            User.id == int(user_id)
+            User.id == user_id
         )
     )
+
+    # -----------------------------------------------------
+    # User not found
+    # -----------------------------------------------------
 
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
+            headers={
+                "WWW-Authenticate": "Bearer"
+            },
         )
+
+    # -----------------------------------------------------
+    # Check active status
+    # -----------------------------------------------------
 
     if not user.is_active:
         raise HTTPException(
@@ -75,6 +122,10 @@ def get_current_user(
 
     return user
 
+
+# =========================================================
+# ROLE CHECKING
+# =========================================================
 
 def require_roles(*roles: UserRole):
 

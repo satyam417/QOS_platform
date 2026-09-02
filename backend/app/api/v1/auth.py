@@ -1,11 +1,7 @@
 from typing import Annotated
 
-from fastapi import (
-    APIRouter,
-    Depends,
-    HTTPException,
-    status,
-)
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,7 +12,9 @@ from app.api.deps import (
 )
 from app.core.database import get_db
 from app.core.security import hash_password
+
 from app.models.user import User, UserRole
+
 from app.schemas.auth import (
     ForgotPasswordRequest,
     LoginRequest,
@@ -29,6 +27,7 @@ from app.schemas.auth import (
     ResetPasswordRequest,
     TokenResponse,
 )
+
 from app.services.auth import (
     authenticate_user,
     create_tokens,
@@ -38,6 +37,7 @@ from app.services.auth import (
     reset_password,
     start_password_reset,
 )
+
 from app.services.otp import OTPService
 
 

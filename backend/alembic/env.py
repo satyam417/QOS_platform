@@ -6,6 +6,8 @@ from sqlalchemy import pool
 from alembic import context
 
 from app.core.database import Base
+from app.core.config import settings
+from app.models import user, refresh_token, vendor
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
 from app.models.address import Address
@@ -34,8 +36,15 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    configuration = config.get_section(
+        config.config_ini_section,
+        {},
+    )
+
+    configuration["sqlalchemy.url"] = settings.DATABASE_URL
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
