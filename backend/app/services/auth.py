@@ -1,72 +1,77 @@
 from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-from app.core.security import hash_refresh_token
 
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
-    create_refresh_token,
     hash_password,
-    hash_refresh_token,
     verify_password,
 )
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
+from app.services.otp import OTPService
 
 
+# =========================================================
+# HELPER FUNCTIONS
+# =========================================================
 
-def create_tokens(
-    user: User,
-    db: Session,
-) -> tuple[str, str]:
+def hash_refresh_token(token: str) -> str:
+    """
+    Hash the refresh token before storing it in the database.
+    """
+    return hashlib.sha256(
+        token.encode("utf-8")
+    ).hexdigest()
 
-    access_token = create_access_token(
-        user_id=user.id,
-        role=user.role.value,
-    )
 
-    refresh_token = create_refresh_token()
+def generate_refresh_token() -> str:
+    """
+    Generate a secure random refresh token.
+    """
+    return secrets.token_urlsafe(64)
 
-    refresh_token_record = RefreshToken(
-        user_id=user.id,
-        token_hash=hash_refresh_token(
-            refresh_token
-        ),
-        expires_at=(
-            datetime.now(timezone.utc)
-            + timedelta(
-                days=settings.REFRESH_TOKEN_EXPIRE_DAYS
-            )
-        ),
-    )
 
-    db.add(refresh_token_record)
-    db.commit()
-
-    return access_token, refresh_token
-
+# =========================================================
+# AUTHENTICATE USER
+# =========================================================
 
 def authenticate_user(
     identifier: str,
     password: str,
     db: Session,
-) -> User | None:
+):
+    """
+    Authenticate a user using email or phone.
+    """
 
-    identifier = identifier.strip().lower()
+    identifier = identifier.strip()
 
+    # Try email first
     user = db.scalar(
         select(User).where(
-            (User.email == identifier)
-            | (User.phone == identifier)
+            User.email == identifier.lower()
         )
     )
 
-    if not user:
+    # If email is not found, try phone
+    if user is None:
+        user = db.scalar(
+            select(User).where(
+                User.phone == identifier
+            )
+        )
+
+    # User doesn't exist
+    if user is None:
         return None
 
+    # Check password
     if not verify_password(
         password,
         user.password_hash,
@@ -76,89 +81,157 @@ def authenticate_user(
     return user
 
 
+# =========================================================
+# CREATE TOKENS
+# =========================================================
+
+def create_tokens(
+    user: User,
+    db: Session,
+):
+    """
+    Create access token and refresh token.
+    """
+
+    # Get role value
+    role = (
+        user.role.value
+        if hasattr(user.role, "value")
+        else str(user.role)
+    )
+
+    # Create access token
+    access_token = create_access_token(
+        user_id=user.id,
+        role=role,
+    )
+
+    # Generate refresh token
+    refresh_token = generate_refresh_token()
+
+    # Hash refresh token
+    token_hash = hash_refresh_token(
+        refresh_token
+    )
+
+    # Calculate expiration
+    now = datetime.now(timezone.utc)
+
+    expires_at = (
+        now
+        + timedelta(
+            days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+        )
+    )
+
+    # Save refresh token
+    stored_token = RefreshToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+        revoked_at=None,
+    )
+
+    db.add(stored_token)
+    db.commit()
+    db.refresh(stored_token)
+
+    return access_token, refresh_token
+
+
+# =========================================================
+# REFRESH ACCESS TOKEN
+# =========================================================
+
 def refresh_access_token(
     refresh_token: str,
     db: Session,
-) -> tuple[str, str] | None:
+):
+    """
+    Validate refresh token and create a new token pair.
+    """
 
     token_hash = hash_refresh_token(
         refresh_token
     )
 
+    # Find stored refresh token
     stored_token = db.scalar(
         select(RefreshToken).where(
             RefreshToken.token_hash == token_hash
         )
     )
 
-    if not stored_token:
+    if stored_token is None:
         return None
 
-    now = datetime.now(timezone.utc)
-
-    # Token has already been revoked.
+    # Check if revoked
     if stored_token.revoked_at is not None:
         return None
 
-    # Token has expired.
-    if stored_token.expires_at <= now:
+    # Current UTC time
+    now = datetime.now(timezone.utc)
+
+    expires_at = stored_token.expires_at
+
+    # SQLite may return naive datetime
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(
+            tzinfo=timezone.utc
+        )
+
+    # Check expiration
+    if expires_at <= now:
 
         stored_token.revoked_at = now
+
         db.commit()
 
         return None
 
-    user = db.get(
-        User,
-        stored_token.user_id,
+    # Find user
+    user = db.scalar(
+        select(User).where(
+            User.id == stored_token.user_id
+        )
     )
 
-    if not user:
+    if user is None:
         return None
 
+    # Check account status
     if not user.is_active:
         return None
 
-    if not user.is_verified:
-        return None
-
-    # Rotate old refresh token.
+    # Revoke old refresh token
     stored_token.revoked_at = now
 
-    # Create new tokens.
-    new_access_token = create_access_token(
-        user_id=user.id,
-        role=user.role.value,
-    )
-
-    new_refresh_token = create_refresh_token()
-
-    new_refresh_token_record = RefreshToken(
-        user_id=user.id,
-        token_hash=hash_refresh_token(
-            new_refresh_token
-        ),
-        expires_at=(
-            now
-            + timedelta(
-                days=settings.REFRESH_TOKEN_EXPIRE_DAYS
-            )
-        ),
-    )
-
-    db.add(new_refresh_token_record)
     db.commit()
+
+    # Generate new token pair
+    new_access_token, new_refresh_token = create_tokens(
+        user,
+        db,
+    )
 
     return (
         new_access_token,
         new_refresh_token,
     )
 
+
+# =========================================================
+# LOGOUT
+# =========================================================
+
 def logout(
     refresh_token: str,
     user_id: int,
     db: Session,
-) -> bool:
+):
+    """
+    Revoke one refresh token.
+    """
 
     token_hash = hash_refresh_token(
         refresh_token
@@ -171,24 +244,32 @@ def logout(
         )
     )
 
-    if not stored_token:
+    if stored_token is None:
         return False
 
     if stored_token.revoked_at is not None:
         return False
 
-    stored_token.revoked_at = datetime.now(
-        timezone.utc
+    stored_token.revoked_at = (
+        datetime.now(timezone.utc)
     )
 
     db.commit()
 
     return True
 
+
+# =========================================================
+# LOGOUT ALL DEVICES
+# =========================================================
+
 def logout_all(
     user_id: int,
     db: Session,
-) -> int:
+):
+    """
+    Revoke all refresh tokens belonging to a user.
+    """
 
     tokens = db.scalars(
         select(RefreshToken).where(
@@ -197,113 +278,108 @@ def logout_all(
         )
     ).all()
 
+    if not tokens:
+        return 0
+
     now = datetime.now(timezone.utc)
+
+    count = 0
 
     for token in tokens:
         token.revoked_at = now
+        count += 1
 
     db.commit()
 
-    return len(tokens)
-
-import hashlib
-import secrets
-
-from fastapi import HTTPException, status
-from redis.asyncio import Redis
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.user import User
-from app.core.security import hash_password, verify_password
+    return count
 
 
-PASSWORD_RESET_OTP_EXPIRE_SECONDS = 300
-
-
-def generate_otp() -> str:
-    return f"{secrets.randbelow(1_000_000):06d}"
-
-
-def hash_otp(otp: str) -> str:
-    return hashlib.sha256(otp.encode()).hexdigest()
-
+# =========================================================
+# START PASSWORD RESET
+# =========================================================
 
 async def start_password_reset(
-    db: AsyncSession,
+    db: Session,
     redis: Redis,
     email: str,
-) -> None:
-    result = await db.execute(
-        select(User).where(User.email == email)
+):
+    """
+    Generate and store a password-reset OTP.
+
+    For security, this function does not reveal whether
+    the email exists.
+    """
+
+    email = email.lower().strip()
+
+    # Find user
+    user = db.scalar(
+        select(User).where(
+            User.email == email
+        )
     )
 
-    user = result.scalar_one_or_none()
-
-    # Don't reveal whether the account exists.
-    if not user:
+    # If user doesn't exist, simply return.
+    # The API will still return a generic message.
+    if user is None:
         return
 
-    otp = generate_otp()
+    # Create OTP service
+    otp_service = OTPService(redis)
 
-    redis_key = f"password_reset_otp:{email.lower()}"
+    # Generate/store OTP
+    await otp_service.send_otp(email)
 
-    await redis.setex(
-        redis_key,
-        PASSWORD_RESET_OTP_EXPIRE_SECONDS,
-        hash_otp(otp),
-    )
+    return
 
-    # Replace this with your actual email/SMS service.
-    print(f"Password reset OTP for {email}: {otp}")
 
+# =========================================================
+# RESET PASSWORD
+# =========================================================
 
 async def reset_password(
-    db: AsyncSession,
+    db: Session,
     redis: Redis,
     email: str,
     otp: str,
     new_password: str,
-) -> None:
-    email = email.lower()
+):
+    """
+    Verify password-reset OTP and update password.
+    """
 
-    redis_key = f"password_reset_otp:{email}"
+    email = email.lower().strip()
 
-    stored_otp_hash = await redis.get(redis_key)
-
-    if not stored_otp_hash:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OTP expired or invalid",
+    # Find user
+    user = db.scalar(
+        select(User).where(
+            User.email == email
         )
-
-    if isinstance(stored_otp_hash, bytes):
-        stored_otp_hash = stored_otp_hash.decode()
-
-    if not secrets.compare_digest(
-        stored_otp_hash,
-        hash_otp(otp),
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OTP",
-        )
-
-    result = await db.execute(
-        select(User).where(User.email == email)
     )
 
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Unable to reset password",
+    if user is None:
+        raise ValueError(
+            "Invalid email or OTP"
         )
 
-    user.password_hash = hash_password(new_password)
+    # Verify OTP
+    otp_service = OTPService(redis)
 
-    await db.commit()
+    valid = await otp_service.verify_otp(
+        email,
+        otp,
+    )
 
-    # OTP can only be used once.
-    await redis.delete(redis_key)
+    if not valid:
+        raise ValueError(
+            "Invalid or expired OTP"
+        )
+
+    # Hash new password
+    user.password_hash = hash_password(
+        new_password
+    )
+
+    db.commit()
+
+    return True

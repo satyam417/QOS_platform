@@ -1,3 +1,4 @@
+
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -32,7 +33,6 @@ def create_access_token(
     user_id: int,
     role: str,
 ) -> str:
-
     now = datetime.now(timezone.utc)
 
     payload = {
@@ -64,7 +64,6 @@ def hash_refresh_token(token: str) -> str:
 
 
 def decode_access_token(token: str) -> dict:
-
     try:
         payload = jwt.decode(
             token,
@@ -78,4 +77,7 @@ def decode_access_token(token: str) -> dict:
         return payload
 
     except JWTError as exc:
-        raise ValueError("Invalid or expired token") from exc
+        raise ValueError(
+            "Invalid or expired token"
+        ) from exc
+
