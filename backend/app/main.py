@@ -14,10 +14,9 @@ app = FastAPI(
 )
 
 
-app.include_router(
-    auth_router,
-    prefix="/api/v1",
-)
+app.include_router(auth_router, prefix="/api/v1")
+app.include_router(users_router, prefix="/api/v1")
+app.include_router(admin_users_router, prefix="/api/v1")
 
 app.include_router(
     health_router
@@ -32,6 +31,9 @@ app.add_exception_handler(
     integrity_error_handler
 )
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 @app.get("/")
 async def root():
