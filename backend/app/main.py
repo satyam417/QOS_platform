@@ -1,13 +1,13 @@
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from sqlalchemy import text
 
 from app.middlewares.request_id import add_request_id
 from sqlalchemy.exc import IntegrityError
 from app.exceptions.handlers import integrity_error_handler
 
 from app.api.v1.auth import router as auth_router
+from app.api.v1.portal import router as portal_router
 from app.api.v1.users import router as users_router
+from app.api.v1.kyc import router as kyc_router
 from app.api.v1.admin_users import router as admin_users_router
 from app.api.v1.customer import router as customer_router
 from app.api.v1.vendors import router as vendors_router
@@ -22,6 +22,9 @@ app = FastAPI(
 )
 
 
+# =========================================================
+# API ROUTERS
+# =========================================================
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(admin_users_router, prefix="/api/v1")
@@ -42,10 +45,46 @@ app.add_exception_handler(
     integrity_error_handler,
 )
 
+app.include_router(
+    auth_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    users_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    admin_users_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    portal_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    kyc_router,
+    prefix="/api/v1",
+)
+
+
+# =========================================================
+# HEALTH CHECK
+# =========================================================
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+    }
+
+
+# =========================================================
+# ROOT
+# =========================================================
 
 
 @app.get("/")
