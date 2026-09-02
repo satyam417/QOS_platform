@@ -6,7 +6,8 @@ from pydantic import BaseModel, EmailStr, Field
 class RegisterRole(str, Enum):
     CUSTOMER = "customer"
     VENDOR = "vendor"
-
+    OPERATOR = "operator"
+    ADMIN = "admin"
 
 class RegisterRequest(BaseModel):
     name: str = Field(
