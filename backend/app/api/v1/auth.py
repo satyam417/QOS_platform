@@ -1,44 +1,27 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+)
+
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_redis
+from app.api.deps import (
+    get_current_user,
+    get_redis,
+)
 from app.core.database import get_db
 from app.core.security import hash_password
+
 from app.models.user import User, UserRole
+
 from app.schemas.auth import (
-    LoginRequest,
-    OTPVerifyRequest,
-    OTPSendRequest,
-    RegisterRequest,
-    RegisterResponse,
-    TokenResponse,
-)
-from app.services.auth import (
-    authenticate_user,
-    create_tokens,
-)
-from app.services.otp import OTPService
-from app.schemas.auth import (
-    LoginRequest,
-    OTPVerifyRequest,
-    OTPSendRequest,
-    RefreshTokenRequest,
-    RegisterRequest,
-    RegisterResponse,
-    TokenResponse,
-)
-from app.services.auth import (
-    authenticate_user,
-    create_tokens,
-    logout,
-    logout_all,
-    refresh_access_token,
-)
-from app.api.deps import get_current_user, get_redis
-from app.schemas.auth import (
+    ForgotPasswordRequest,
     LoginRequest,
     LogoutRequest,
     OTPVerifyRequest,
@@ -46,26 +29,36 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     RegisterRequest,
     RegisterResponse,
+    ResetPasswordRequest,
     TokenResponse,
 )
 
-from fastapi import APIRouter, Depends, status
-from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.schemas.auth import (
-    ForgotPasswordRequest,
-    ResetPasswordRequest,
-)
 from app.services.auth import (
+    authenticate_user,
+    create_tokens,
+    logout,
+    logout_all,
+    refresh_access_token,
     start_password_reset,
     reset_password,
 )
+
+from app.services.otp import OTPService
+
+
+# =========================================================
+# ROUTER
+# =========================================================
 
 router = APIRouter(
     prefix="/auth",
     tags=["Authentication"],
 )
+
+
+# =========================================================
+# REFRESH TOKEN
+# =========================================================
 
 @router.post(
     "/refresh",
@@ -85,7 +78,6 @@ def refresh_token(
     )
 
     if not result:
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -99,7 +91,9 @@ def refresh_token(
     )
 
 
-#Register
+# =========================================================
+# REGISTER
+# =========================================================
 
 @router.post(
     "/register",
@@ -127,13 +121,12 @@ def register(
     )
 
     if not email and not phone:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email or phone is required",
         )
 
-    # Never allow public registration as admin.
+    # Never allow public admin registration
     role = UserRole(request.role.value)
 
     if role == UserRole.ADMIN:
@@ -142,6 +135,7 @@ def register(
             detail="Admin registration is not allowed",
         )
 
+    # Check email
     if email:
 
         existing = db.scalar(
@@ -151,12 +145,12 @@ def register(
         )
 
         if existing:
-
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Email is already registered",
             )
 
+    # Check phone
     if phone:
 
         existing = db.scalar(
@@ -166,12 +160,12 @@ def register(
         )
 
         if existing:
-
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Phone is already registered",
             )
 
+    # Create user
     user = User(
         name=request.name.strip(),
         email=email,
@@ -190,13 +184,17 @@ def register(
 
     return user
 
-#Send OTP
+
+# =========================================================
+# SEND OTP
+# =========================================================
+
 @router.post(
     "/otp/send",
 )
 async def send_otp(
     request: OTPSendRequest,
-    redis=Depends(get_redis),
+    redis: Redis = Depends(get_redis),
 ):
 
     identifier = (
@@ -206,7 +204,6 @@ async def send_otp(
     )
 
     if not identifier:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email or phone is required",
@@ -222,7 +219,10 @@ async def send_otp(
         "message": "OTP sent successfully"
     }
 
-#Verify OPT
+
+# =========================================================
+# VERIFY OTP
+# =========================================================
 
 @router.post(
     "/otp/verify",
@@ -234,7 +234,7 @@ async def verify_otp(
         Session,
         Depends(get_db),
     ],
-    redis=Depends(get_redis),
+    redis: Redis = Depends(get_redis),
 ):
 
     identifier = (
@@ -244,7 +244,6 @@ async def verify_otp(
     )
 
     if not identifier:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email or phone is required",
@@ -258,12 +257,12 @@ async def verify_otp(
     )
 
     if not valid:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OTP",
         )
 
+    # Find user
     user = db.scalar(
         select(User).where(
             (User.email == identifier)
@@ -272,16 +271,17 @@ async def verify_otp(
     )
 
     if not user:
-
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found",
         )
 
+    # Verify account
     user.is_verified = True
 
     db.commit()
 
+    # Create tokens
     access_token, refresh_token = create_tokens(
         user,
         db,
@@ -292,7 +292,10 @@ async def verify_otp(
         refresh_token=refresh_token,
     )
 
-#Login
+
+# =========================================================
+# LOGIN
+# =========================================================
 
 @router.post(
     "/login",
@@ -313,7 +316,6 @@ def login(
     )
 
     if not user:
-
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -323,14 +325,12 @@ def login(
         )
 
     if not user.is_active:
-
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is inactive",
         )
 
     if not user.is_verified:
-
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is not verified",
@@ -346,8 +346,14 @@ def login(
         refresh_token=refresh_token,
     )
 
-#Logout
-@router.post("/logout")
+
+# =========================================================
+# LOGOUT
+# =========================================================
+
+@router.post(
+    "/logout"
+)
 def logout_user(
     request: LogoutRequest,
     current_user: Annotated[
@@ -376,8 +382,14 @@ def logout_user(
         "message": "Logged out successfully"
     }
 
-#Logout All 
-@router.post("/logout-all")
+
+# =========================================================
+# LOGOUT ALL DEVICES
+# =========================================================
+
+@router.post(
+    "/logout-all"
+)
 def logout_all_devices(
     current_user: Annotated[
         User,
@@ -399,15 +411,24 @@ def logout_all_devices(
         "sessions_revoked": revoked_count,
     }
 
+
+# =========================================================
+# FORGOT PASSWORD
+# =========================================================
+
 @router.post(
     "/password/forgot",
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def forgot_password(
     payload: ForgotPasswordRequest,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
     redis: Redis = Depends(get_redis),
 ):
+
     await start_password_reset(
         db=db,
         redis=redis,
@@ -415,8 +436,16 @@ async def forgot_password(
     )
 
     return {
-        "message": "If an account exists, a password reset OTP has been sent."
+        "message": (
+            "If an account exists, "
+            "a password reset OTP has been sent."
+        )
     }
+
+
+# =========================================================
+# RESET PASSWORD
+# =========================================================
 
 @router.post(
     "/password/reset",
@@ -424,16 +453,29 @@ async def forgot_password(
 )
 async def password_reset(
     payload: ResetPasswordRequest,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
     redis: Redis = Depends(get_redis),
 ):
-    await reset_password(
-        db=db,
-        redis=redis,
-        email=payload.email,
-        otp=payload.otp,
-        new_password=payload.new_password,
-    )
+
+    try:
+
+        await reset_password(
+            db=db,
+            redis=redis,
+            email=payload.email,
+            otp=payload.otp,
+            new_password=payload.new_password,
+        )
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     return {
         "message": "Password reset successfully."
