@@ -1,23 +1,8 @@
-from typing import Annotated
-
-from fastapi import Depends
-
-from app.api.deps import require_roles
-from app.models.user import User, UserRole
-
-
-@router.get("/vendor/dashboard")
-async def vendor_dashboard(
-    current_user: Annotated[
-        User,
-        Depends(
-            require_roles(UserRole.VENDOR)
-        ),
-    ],
-):
-
-    return {
-        "message": "Vendor dashboard",
-        "user_id": current_user.id,
-        "role": current_user.role.value,
-    }
+sqlalchemy
+alembic
+psycopg2-binary
+redis
+python-dotenv
+pydantic-settings
+uvicorn
+fastapi
