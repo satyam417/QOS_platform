@@ -1,11 +1,19 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+)
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_redis
+from app.api.deps import (
+    get_current_user,
+    get_redis,
+)
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.user import User, UserRole
@@ -33,15 +41,19 @@ from app.services.auth import (
 from app.services.otp import OTPService
 
 
+# =========================================================
+# ROUTER
+# =========================================================
+
 router = APIRouter(
     prefix="/auth",
     tags=["Authentication"],
 )
 
 
-# ---------------------------------------------------------
-# Refresh Token
-# ---------------------------------------------------------
+# =========================================================
+# REFRESH TOKEN
+# =========================================================
 
 @router.post(
     "/refresh",
@@ -70,9 +82,9 @@ def refresh_token(
     )
 
 
-# ---------------------------------------------------------
-# Register
-# ---------------------------------------------------------
+# =========================================================
+# REGISTER
+# =========================================================
 
 @router.post(
     "/register",
@@ -111,6 +123,7 @@ def register(
             detail="Admin registration is not allowed",
         )
 
+    # Check email
     if email:
         existing = db.scalar(
             select(User).where(User.email == email)
@@ -122,6 +135,7 @@ def register(
                 detail="Email is already registered",
             )
 
+    # Check phone
     if phone:
         existing = db.scalar(
             select(User).where(User.phone == phone)
@@ -133,6 +147,7 @@ def register(
                 detail="Phone is already registered",
             )
 
+    # Create user
     user = User(
         name=request.name.strip(),
         email=email,
@@ -150,11 +165,13 @@ def register(
     return user
 
 
-# ---------------------------------------------------------
-# Send OTP
-# ---------------------------------------------------------
+# =========================================================
+# SEND OTP
+# =========================================================
 
-@router.post("/otp/send")
+@router.post(
+    "/otp/send",
+)
 async def send_otp(
     request: OTPSendRequest,
     redis: Redis = Depends(get_redis),
@@ -183,9 +200,9 @@ async def send_otp(
     }
 
 
-# ---------------------------------------------------------
-# Verify OTP
-# ---------------------------------------------------------
+# =========================================================
+# VERIFY OTP
+# =========================================================
 
 @router.post(
     "/otp/verify",
@@ -193,7 +210,10 @@ async def send_otp(
 )
 async def verify_otp(
     request: OTPVerifyRequest,
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
     redis: Redis = Depends(get_redis),
 ):
     identifier = (
@@ -223,6 +243,7 @@ async def verify_otp(
             detail="Invalid or expired OTP",
         )
 
+    # Find user
     user = db.scalar(
         select(User).where(
             (User.email == identifier)
@@ -236,10 +257,12 @@ async def verify_otp(
             detail="User not found",
         )
 
+    # Verify account
     user.is_verified = True
 
     db.commit()
 
+    # Create tokens
     access_token, refresh_token = create_tokens(
         user,
         db,
@@ -251,9 +274,9 @@ async def verify_otp(
     )
 
 
-# ---------------------------------------------------------
-# Login
-# ---------------------------------------------------------
+# =========================================================
+# LOGIN
+# =========================================================
 
 @router.post(
     "/login",
@@ -301,11 +324,13 @@ def login(
     )
 
 
-# ---------------------------------------------------------
-# Logout
-# ---------------------------------------------------------
+# =========================================================
+# LOGOUT
+# =========================================================
 
-@router.post("/logout")
+@router.post(
+    "/logout",
+)
 def logout_user(
     request: LogoutRequest,
     current_user: Annotated[
@@ -331,11 +356,13 @@ def logout_user(
     }
 
 
-# ---------------------------------------------------------
-# Logout All Devices
-# ---------------------------------------------------------
+# =========================================================
+# LOGOUT ALL DEVICES
+# =========================================================
 
-@router.post("/logout-all")
+@router.post(
+    "/logout-all",
+)
 def logout_all_devices(
     current_user: Annotated[
         User,
@@ -354,9 +381,9 @@ def logout_all_devices(
     }
 
 
-# ---------------------------------------------------------
-# Forgot Password
-# ---------------------------------------------------------
+# =========================================================
+# FORGOT PASSWORD
+# =========================================================
 
 @router.post(
     "/password/forgot",
@@ -364,7 +391,10 @@ def logout_all_devices(
 )
 async def forgot_password(
     payload: ForgotPasswordRequest,
-    db: Session = Depends(get_db),
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
     redis: Redis = Depends(get_redis),
 ):
     await start_password_reset(
@@ -374,13 +404,16 @@ async def forgot_password(
     )
 
     return {
-        "message": "If an account exists, a password reset OTP has been sent."
+        "message": (
+            "If an account exists, "
+            "a password reset OTP has been sent."
+        )
     }
 
 
-# ---------------------------------------------------------
-# Reset Password
-# ---------------------------------------------------------
+# =========================================================
+# RESET PASSWORD
+# =========================================================
 
 @router.post(
     "/password/reset",
@@ -388,16 +421,26 @@ async def forgot_password(
 )
 async def password_reset(
     payload: ResetPasswordRequest,
-    db: Session = Depends(get_db),
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
     redis: Redis = Depends(get_redis),
 ):
-    await reset_password(
-        db=db,
-        redis=redis,
-        email=payload.email,
-        otp=payload.otp,
-        new_password=payload.new_password,
-    )
+    try:
+        await reset_password(
+            db=db,
+            redis=redis,
+            email=payload.email,
+            otp=payload.otp,
+            new_password=payload.new_password,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
 
     return {
         "message": "Password reset successfully."
