@@ -11,6 +11,7 @@ from app.api.v1.users import router as users_router
 from app.api.v1.admin_users import router as admin_users_router
 from app.api.v1.vendors import router as vendors_router
 from app.api.v1.operators import router as operators_router
+from app.api.v1.customer import router as customer_router
 
 
 app = FastAPI(
@@ -41,16 +42,3 @@ app.include_router(
     operators_router,
     prefix="/api/v1",
 )
-
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-@app.get("/")
-async def root():
-    return {
-        "message": "QOS Platform API is running",
-        "status": "ok",
-    }

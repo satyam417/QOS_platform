@@ -1,19 +1,14 @@
-"""create refresh tokens table
-
-Revision ID: 7d36e551fa19
-Revises: 945815369613
-"""
-
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "7d36e551fa19"
-down_revision: Union[str, Sequence[str], None] = "945815369613"
-branch_labels = None
-depends_on = None
+# revision identifiers, used by Alembic.
+revision: str = "b76544528ff0"
+down_revision: Union[str, Sequence[str], None] = "e2b28228dd70"
+branch_labels: Union[str, Sequence[str], None] = None
+depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
@@ -21,13 +16,13 @@ def upgrade() -> None:
         "refresh_tokens",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
-        sa.Column("token_hash", sa.String(length=128), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("token_hash", sa.String(), nullable=False),
+        sa.Column("expires_at", sa.DateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
+        sa.Column("revoked_at", sa.DateTime(), nullable=True),
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["users.id"],
-            ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -43,7 +38,7 @@ def upgrade() -> None:
         "ix_refresh_tokens_token_hash",
         "refresh_tokens",
         ["token_hash"],
-        unique=True,
+        unique=False,
     )
 
 

@@ -5,12 +5,14 @@ from sqlalchemy.exc import IntegrityError
 
 async def integrity_error_handler(
     request: Request,
-    exc: IntegrityError
+    exc: IntegrityError,
 ):
+    print("INTEGRITY ERROR:", exc)
+
     return JSONResponse(
         status_code=409,
         content={
             "error": "Database constraint violation",
-            "message": "The email may already be registered."
-        }
+            "message": str(exc.orig),
+        },
     )
