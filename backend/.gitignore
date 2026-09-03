@@ -33,3 +33,6 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Uploaded KYC documents
+uploads/

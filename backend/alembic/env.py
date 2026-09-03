@@ -7,28 +7,45 @@ from alembic import context
 
 from app.core.database import Base
 from app.core.config import settings
-from app.models import user, refresh_token, vendor
+
+# Import all models so Alembic can detect them
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
+from app.models.vendor import VendorProfile
 from app.models.address import Address
+from app.models.kyc import KYC
 
 
+# Alembic Config object
 config = context.config
 
+
+# Configure Python logging
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
+
+# Metadata used by Alembic for autogenerate
 target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = config.get_main_option("sqlalchemy.url")
+    """
+    Run migrations in 'offline' mode.
+
+    This configures the context with just a URL
+    and does not create an Engine.
+    """
+
+    url = settings.DATABASE_URL
 
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
+        dialect_opts={
+            "paramstyle": "named"
+        },
     )
 
     with context.begin_transaction():
@@ -36,6 +53,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
+    """
+    Run migrations in 'online' mode.
+
+    This creates an Engine and runs migrations
+    against the database.
+    """
+
     configuration = config.get_section(
         config.config_ini_section,
         {},
@@ -50,6 +74,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

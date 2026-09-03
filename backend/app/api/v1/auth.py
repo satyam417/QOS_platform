@@ -1,7 +1,12 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+)
+
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -34,8 +39,8 @@ from app.services.auth import (
     logout,
     logout_all,
     refresh_access_token,
-    reset_password,
     start_password_reset,
+    reset_password,
 )
 
 from app.services.otp import OTPService
@@ -61,11 +66,14 @@ router = APIRouter(
 )
 def refresh_token(
     request: RefreshTokenRequest,
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
 ):
     result = refresh_access_token(
-        refresh_token=request.refresh_token,
-        db=db,
+        request.refresh_token,
+        db,
     )
 
     if not result:
@@ -74,11 +82,11 @@ def refresh_token(
             detail="Invalid or expired refresh token",
         )
 
-    access_token, new_refresh_token = result
+    access_token, refresh_token_value = result
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=new_refresh_token,
+        refresh_token=refresh_token_value,
     )
 
 
@@ -89,11 +97,13 @@ def refresh_token(
 @router.post(
     "/register",
     response_model=RegisterResponse,
-    status_code=status.HTTP_201_CREATED,
 )
 def register(
     request: RegisterRequest,
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
 ):
     email = (
         request.email.lower().strip()
@@ -113,20 +123,19 @@ def register(
             detail="Email or phone is required",
         )
 
-    # Public registration can create customers or vendors,
-    # but never administrators.
+    # Supported roles:
+    # customer, vendor, operator, admin
     role = UserRole(request.role.value)
 
-    if role == UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin registration is not allowed",
-        )
-
+    # -----------------------------------------------------
     # Check email
+    # -----------------------------------------------------
+
     if email:
         existing = db.scalar(
-            select(User).where(User.email == email)
+            select(User).where(
+                User.email == email
+            )
         )
 
         if existing:
@@ -135,10 +144,15 @@ def register(
                 detail="Email is already registered",
             )
 
+    # -----------------------------------------------------
     # Check phone
+    # -----------------------------------------------------
+
     if phone:
         existing = db.scalar(
-            select(User).where(User.phone == phone)
+            select(User).where(
+                User.phone == phone
+            )
         )
 
         if existing:
@@ -147,13 +161,18 @@ def register(
                 detail="Phone is already registered",
             )
 
+    # -----------------------------------------------------
     # Create user
+    # -----------------------------------------------------
+
     user = User(
         name=request.name.strip(),
         email=email,
         phone=phone,
-        password_hash=hash_password(request.password),
-        role=role,
+        password_hash=hash_password(
+            request.password
+        ),
+        role=role.value,
         is_active=True,
         is_verified=False,
     )
@@ -179,9 +198,11 @@ async def send_otp(
     identifier = (
         request.email.lower().strip()
         if request.email
-        else request.phone.strip()
-        if request.phone
-        else None
+        else (
+            request.phone.strip()
+            if request.phone
+            else None
+        )
     )
 
     if not identifier:
@@ -192,7 +213,9 @@ async def send_otp(
 
     otp_service = OTPService(redis)
 
-    otp = await otp_service.send_otp(identifier)
+    otp = await otp_service.send_otp(
+        identifier
+    )
 
     return {
         "message": "OTP sent successfully",
@@ -219,9 +242,11 @@ async def verify_otp(
     identifier = (
         request.email.lower().strip()
         if request.email
-        else request.phone.strip()
-        if request.phone
-        else None
+        else (
+            request.phone.strip()
+            if request.phone
+            else None
+        )
     )
 
     if not identifier:
@@ -243,7 +268,10 @@ async def verify_otp(
             detail="Invalid or expired OTP",
         )
 
+    # -----------------------------------------------------
     # Find user
+    # -----------------------------------------------------
+
     user = db.scalar(
         select(User).where(
             (User.email == identifier)
@@ -257,20 +285,26 @@ async def verify_otp(
             detail="User not found",
         )
 
+    # -----------------------------------------------------
     # Verify account
+    # -----------------------------------------------------
+
     user.is_verified = True
 
     db.commit()
 
+    # -----------------------------------------------------
     # Create tokens
-    access_token, refresh_token = create_tokens(
+    # -----------------------------------------------------
+
+    access_token, refresh_token_value = create_tokens(
         user,
         db,
     )
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
+        refresh_token=refresh_token_value,
     )
 
 
@@ -284,43 +318,58 @@ async def verify_otp(
 )
 def login(
     request: LoginRequest,
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
 ):
-    user = authenticate_user(
-        identifier=request.identifier,
-        password=request.password,
-        db=db,
+    # Login accepts email or phone through
+    # the "identifier" field.
+
+    authenticated_user = authenticate_user(
+        request.identifier,
+        request.password,
+        db,
     )
 
-    if not user:
+    if not authenticated_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
-            headers={
-                "WWW-Authenticate": "Bearer"
-            },
         )
 
-    if not user.is_active:
+    # -----------------------------------------------------
+    # Check active status
+    # -----------------------------------------------------
+
+    if not authenticated_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is inactive",
         )
 
-    if not user.is_verified:
+    # -----------------------------------------------------
+    # Check verification status
+    # -----------------------------------------------------
+
+    if not authenticated_user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is not verified",
         )
 
-    access_token, refresh_token = create_tokens(
-        user,
+    # -----------------------------------------------------
+    # Create tokens
+    # -----------------------------------------------------
+
+    access_token, refresh_token_value = create_tokens(
+        authenticated_user,
         db,
     )
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
+        refresh_token=refresh_token_value,
     )
 
 
@@ -337,19 +386,16 @@ def logout_user(
         User,
         Depends(get_current_user),
     ],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
 ):
-    success = logout(
+    logout(
         refresh_token=request.refresh_token,
         user_id=current_user.id,
         db=db,
     )
-
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or already revoked refresh token",
-        )
 
     return {
         "message": "Logged out successfully"
@@ -368,7 +414,10 @@ def logout_all_devices(
         User,
         Depends(get_current_user),
     ],
-    db: Annotated[Session, Depends(get_db)],
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
 ):
     revoked_count = logout_all(
         user_id=current_user.id,
