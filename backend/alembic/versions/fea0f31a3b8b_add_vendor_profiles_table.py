@@ -5,14 +5,12 @@ Revises: 945815369613
 Create Date: 2026-08-29 20:32:48.572200
 
 """
-
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
 
 
-# revision identifiers, used by Alembic.
 revision: str = "fea0f31a3b8b"
 down_revision: Union[str, Sequence[str], None] = "945815369613"
 branch_labels: Union[str, Sequence[str], None] = None
@@ -21,7 +19,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-
     op.create_table(
         "vendor_profiles",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -60,14 +57,12 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-
     op.create_index(
         "ix_vendor_profiles_id",
         "vendor_profiles",
         ["id"],
         unique=False,
     )
-
     op.create_index(
         "ix_vendor_profiles_user_id",
         "vendor_profiles",
@@ -78,15 +73,12 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
-
     op.drop_index(
         "ix_vendor_profiles_user_id",
         table_name="vendor_profiles",
     )
-
     op.drop_index(
         "ix_vendor_profiles_id",
         table_name="vendor_profiles",
     )
-
     op.drop_table("vendor_profiles")
