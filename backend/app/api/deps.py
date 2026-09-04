@@ -75,7 +75,7 @@ def get_current_user(
         )
 
     # -----------------------------------------------------
-    # Find user in database
+    # Validate user ID
     # -----------------------------------------------------
 
     try:
@@ -91,6 +91,10 @@ def get_current_user(
             },
         )
 
+    # -----------------------------------------------------
+    # Find user in database
+    # -----------------------------------------------------
+
     user = db.scalar(
         select(User).where(
             User.id == user_id
@@ -101,7 +105,8 @@ def get_current_user(
     # User not found
     # -----------------------------------------------------
 
-    if not user:
+    if user is None:
+
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
@@ -115,6 +120,7 @@ def get_current_user(
     # -----------------------------------------------------
 
     if not user.is_active:
+
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
@@ -137,6 +143,7 @@ def require_roles(*roles: UserRole):
     ) -> User:
 
         if current_user.role not in roles:
+
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",
