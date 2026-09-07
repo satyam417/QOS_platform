@@ -6,6 +6,7 @@ from sqlalchemy import pool
 from alembic import context
 
 from app.core.database import Base
+from app.models import user, refresh_token, vendor
 from app.core.config import settings
 
 # Import all models so Alembic can detect them
@@ -85,6 +86,9 @@ def run_migrations_online() -> None:
 
 
 if context.is_offline_mode():
+
     run_migrations_offline()
+
 else:
+
     run_migrations_online()
