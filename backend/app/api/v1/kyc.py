@@ -1,218 +1,267 @@
-from __future__ import annotations
+from typing import Annotated
+from pathlib import Path
+from uuid import uuid4
 
-import enum
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from pydantic import BaseModel
-from sqlalchemy import select
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
-from app.services.storage import (
-    KycDocumentType,
-    build_object_key,
-    generate_presigned_download_url,
-    generate_presigned_upload_url,
-    get_s3_client,
-    validate_upload_metadata,
-    verify_uploaded_object,
+from app.api.deps import get_current_user
+from app.core.database import get_db
+from app.models.kyc import KYC, KYCStatus
+from app.models.user import User, UserRole
+from app.schemas.kyc import (
+    KYCResponse,
+    KYCReviewRequest,
 )
 
-from app.core.database import get_db  # SQLAlchemy session dependency
-from ..security import get_current_user, require_roles  # auth dependencies
-from ..models import KycDocument, VendorProfile, User, Role  # ORM models
 
-router = APIRouter(prefix="/api/v1", tags=["kyc"])
-
-
-class DocumentStatus(str, enum.Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
+router = APIRouter(
+    prefix="/kyc",
+    tags=["KYC"],
+)
 
 
-class UploadUrlRequest(BaseModel):
-    document_type: KycDocumentType
-    content_type: str
-    declared_size_bytes: int
+# ============================================================
+# 1. VENDOR - UPLOAD KYC DOCUMENT
+# ============================================================
 
+@router.post(
+    "/upload",
+    response_model=KYCResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_kyc(
+    document_type: str,
+    document: UploadFile = File(...),
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ] = None,
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ] = None,
+):
 
-class RejectRequest(BaseModel):
-    reason: str
-
-
-def authorize_document_access(db: Session, current_user: User, document: KycDocument) -> None:
-    """Raises 404 (not 403) on denial, so an unauthorized caller can't use
-    this endpoint to probe which document IDs exist for other vendors."""
-    is_owner = (
-        current_user.role == Role.VENDOR
-        and document.vendor.user_id == current_user.id
-    )
-    is_staff = current_user.role in (Role.OPERATOR, Role.ADMIN)
-
-    if not (is_owner or is_staff):
+    # Only vendors can upload KYC
+    if current_user.role != UserRole.VENDOR:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only vendors can upload KYC documents",
+        )
 
-    # Operators are scoped to their assigned region — enforce that here too,
-    # not just at the list-vendors endpoint, so a URL guessed or shared
-    # outside an operator's region still gets denied.
-    if current_user.role == Role.OPERATOR and document.vendor.region_id != current_user.operator_region_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-
-
-def get_document_or_404(db: Session, doc_id: str) -> KycDocument:
-    document = db.execute(
-        select(KycDocument).where(KycDocument.id == doc_id)
-    ).scalar_one_or_none()
-    if document is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-    return document
-
-
-@router.post("/vendors/me/kyc/documents")
-def request_kyc_upload(
-    body: UploadUrlRequest,
-    current_user: User = Depends(require_roles(Role.VENDOR)),
-    db: Session = Depends(get_db),
-):
-    validate_upload_metadata(body.content_type, body.declared_size_bytes)
-
-    vendor = db.execute(
-        select(VendorProfile).where(VendorProfile.user_id == current_user.id)
-    ).scalar_one()
-
-    object_key = build_object_key(
-        str(vendor.id), body.document_type, body.content_type)
-
-    document = KycDocument(
-        vendor_id=vendor.id,
-        document_type=body.document_type.value,
-        object_key=object_key.as_key(),
-        status=DocumentStatus.PENDING.value,
-        uploaded_at=datetime.now(timezone.utc),
-    )
-    db.add(document)
-    db.commit()
-    db.refresh(document)
-
-    s3 = get_s3_client(endpoint_url="...", access_key="...",
-                       secret_key="...")  # from settings
-    presigned = generate_presigned_upload_url(s3, object_key)
-
-    return {"document_id": str(document.id), **presigned}
-
-
-@router.post("/vendors/me/kyc/documents/{doc_id}/confirm")
-def confirm_kyc_upload(
-    doc_id: str,
-    current_user: User = Depends(require_roles(Role.VENDOR)),
-    db: Session = Depends(get_db),
-):
-
-    document = get_document_or_404(db, doc_id)
-    authorize_document_access(db, current_user, document)
-
-    s3 = get_s3_client(endpoint_url="...", access_key="...", secret_key="...")
-    verify_uploaded_object(s3, document.object_key)
-
-    document.confirmed_at = datetime.now(timezone.utc)
-    db.commit()
-    return {"document_id": doc_id, "status": document.status}
-
-
-@router.get("/vendors/me/kyc/documents")
-def list_own_kyc_documents(
-    current_user: User = Depends(require_roles(Role.VENDOR)),
-    db: Session = Depends(get_db),
-):
-    vendor = db.execute(
-        select(VendorProfile).where(VendorProfile.user_id == current_user.id)
-    ).scalar_one()
-    docs = db.execute(
-        select(KycDocument).where(KycDocument.vendor_id == vendor.id)
-    ).scalars().all()
-    return [{"id": str(d.id), "document_type": d.document_type, "status": d.status} for d in docs]
-
-
-@router.get("/kyc/documents/{doc_id}")
-def get_kyc_document(
-    doc_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    document = get_document_or_404(db, doc_id)
-    authorize_document_access(db, current_user, document)
-
-    s3 = get_s3_client(endpoint_url="...", access_key="...", secret_key="...")
-    download_url = generate_presigned_download_url(s3, document.object_key)
-
-    return {
-        "id": str(document.id),
-        "document_type": document.document_type,
-        "status": document.status,
-        "download_url": download_url,
+    # Allowed file types
+    allowed_types = {
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
     }
 
-
-@router.post("/kyc/documents/{doc_id}/approve")
-def approve_kyc_document(
-    doc_id: str,
-    current_user: User = Depends(require_roles(Role.OPERATOR, Role.ADMIN)),
-    db: Session = Depends(get_db),
-):
-    document = get_document_or_404(db, doc_id)
-    authorize_document_access(db, current_user, document)
-
-    if document.status != DocumentStatus.PENDING.value:
+    if document.content_type not in allowed_types:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot approve a document in '{document.status}' state.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PDF, JPG, and PNG files are allowed",
         )
 
-    document.status = DocumentStatus.APPROVED.value
-    document.reviewed_by = current_user.id
-    document.reviewed_at = datetime.now(timezone.utc)
-    db.add(_audit_entry(document, current_user, "approve"))
-    db.commit()
-    return {"document_id": doc_id, "status": document.status}
+    # Create upload directory
+    upload_dir = Path("uploads") / "kyc"
 
-
-@router.post("/kyc/documents/{doc_id}/reject")
-def reject_kyc_document(
-    doc_id: str,
-    body: RejectRequest,
-    current_user: User = Depends(require_roles(Role.OPERATOR, Role.ADMIN)),
-    db: Session = Depends(get_db),
-):
-    document = get_document_or_404(db, doc_id)
-    authorize_document_access(db, current_user, document)
-
-    if document.status != DocumentStatus.PENDING.value:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Cannot reject a document in '{document.status}' state.",
-        )
-
-    document.status = DocumentStatus.REJECTED.value
-    document.reviewed_by = current_user.id
-    document.reviewed_at = datetime.now(timezone.utc)
-    document.rejection_reason = body.reason
-    db.add(_audit_entry(document, current_user, "reject", reason=body.reason))
-    db.commit()
-    return {"document_id": doc_id, "status": document.status, "reason": body.reason}
-
-
-def _audit_entry(document: KycDocument, actor: User, action: str, reason: str | None = None):
-    from ..models import KycAuditLog  # local import to avoid circular import
-
-    return KycAuditLog(
-        document_id=document.id,
-        vendor_id=document.vendor_id,
-        actor_id=actor.id,
-        action=action,
-        reason=reason,
-        created_at=datetime.now(timezone.utc),
+    upload_dir.mkdir(
+        parents=True,
+        exist_ok=True,
     )
+
+    # Get original filename
+    original_filename = document.filename or "document"
+
+    # Get file extension
+    extension = Path(original_filename).suffix.lower()
+
+    # Generate unique filename
+    unique_filename = f"{uuid4()}{extension}"
+
+    # Final file path
+    file_path = upload_dir / unique_filename
+
+    # Save uploaded file
+    with open(file_path, "wb") as buffer:
+        while True:
+            chunk = await document.read(1024 * 1024)
+
+            if not chunk:
+                break
+
+            buffer.write(chunk)
+
+    # Create KYC database record
+    kyc = KYC(
+        vendor_id=current_user.id,
+        document_type=document_type,
+        document_path=str(file_path),
+        status=KYCStatus.PENDING,
+    )
+
+    db.add(kyc)
+
+    db.commit()
+
+    db.refresh(kyc)
+
+    return kyc
+
+
+# ============================================================
+# 2. VENDOR - VIEW MY KYC DOCUMENTS
+# ============================================================
+
+@router.get(
+    "/my",
+    response_model=list[KYCResponse],
+)
+def get_my_kyc(
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
+):
+
+    # Only vendors can view their KYC
+    if current_user.role != UserRole.VENDOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only vendors can view their KYC documents",
+        )
+
+    # Get KYC records belonging to current vendor
+    kycs = (
+        db.query(KYC)
+        .filter(
+            KYC.vendor_id == current_user.id
+        )
+        .order_by(
+            KYC.id.desc()
+        )
+        .all()
+    )
+
+    return kycs
+
+
+# ============================================================
+# 3. OPERATOR - VIEW ALL KYC DOCUMENTS
+# ============================================================
+
+@router.get(
+    "/all",
+    response_model=list[KYCResponse],
+)
+def get_all_kyc(
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
+):
+
+    # Only operators can view all KYC
+    if current_user.role != UserRole.OPERATOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only operators can view all KYC documents",
+        )
+
+    # Get all KYC records
+    kycs = (
+        db.query(KYC)
+        .order_by(
+            KYC.id.desc()
+        )
+        .all()
+    )
+
+    return kycs
+
+
+# ============================================================
+# 4. OPERATOR - APPROVE OR REJECT KYC
+# ============================================================
+
+@router.patch(
+    "/{kyc_id}/review",
+    response_model=KYCResponse,
+)
+def review_kyc(
+    kyc_id: int,
+    review: KYCReviewRequest,
+    current_user: Annotated[
+        User,
+        Depends(get_current_user),
+    ],
+    db: Annotated[
+        Session,
+        Depends(get_db),
+    ],
+):
+
+    # Only operators can review KYC
+    if current_user.role != UserRole.OPERATOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only operators can review KYC documents",
+        )
+
+    # Find KYC record
+    kyc = (
+        db.query(KYC)
+        .filter(
+            KYC.id == kyc_id
+        )
+        .first()
+    )
+
+    # KYC not found
+    if kyc is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="KYC record not found",
+        )
+
+    # If rejecting, rejection reason is required
+    if (
+        review.status == KYCStatus.REJECTED
+        and not review.rejection_reason
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Rejection reason is required",
+        )
+
+    # If approved, remove rejection reason
+    if review.status == KYCStatus.APPROVED:
+        kyc.rejection_reason = None
+    else:
+        kyc.rejection_reason = review.rejection_reason
+
+    # Update KYC status
+    kyc.status = review.status
+
+    # Save changes
+    db.commit()
+
+    db.refresh(kyc)
+
+    return kyc

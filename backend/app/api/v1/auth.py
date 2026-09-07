@@ -71,10 +71,9 @@ def refresh_token(
         Depends(get_db),
     ],
 ):
-
     result = refresh_access_token(
-        refresh_token=request.refresh_token,
-        db=db,
+        request.refresh_token,
+        db,
     )
 
     if not result:
@@ -83,11 +82,11 @@ def refresh_token(
             detail="Invalid or expired refresh token",
         )
 
-    access_token, new_refresh_token = result
+    access_token, refresh_token_value = result
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=new_refresh_token,
+        refresh_token=refresh_token_value,
     )
 
 
@@ -98,7 +97,6 @@ def refresh_token(
 @router.post(
     "/register",
     response_model=RegisterResponse,
-    status_code=status.HTTP_201_CREATED,
 )
 def register(
     request: RegisterRequest,
@@ -107,7 +105,6 @@ def register(
         Depends(get_db),
     ],
 ):
-
     email = (
         request.email.lower().strip()
         if request.email
@@ -126,18 +123,15 @@ def register(
             detail="Email or phone is required",
         )
 
-    # Never allow public admin registration
+    # Supported roles:
+    # customer, vendor, operator, admin
     role = UserRole(request.role.value)
 
-    if role == UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin registration is not allowed",
-        )
-
+    # -----------------------------------------------------
     # Check email
-    if email:
+    # -----------------------------------------------------
 
+    if email:
         existing = db.scalar(
             select(User).where(
                 User.email == email
@@ -150,9 +144,11 @@ def register(
                 detail="Email is already registered",
             )
 
+    # -----------------------------------------------------
     # Check phone
-    if phone:
+    # -----------------------------------------------------
 
+    if phone:
         existing = db.scalar(
             select(User).where(
                 User.phone == phone
@@ -165,7 +161,10 @@ def register(
                 detail="Phone is already registered",
             )
 
+    # -----------------------------------------------------
     # Create user
+    # -----------------------------------------------------
+
     user = User(
         name=request.name.strip(),
         email=email,
@@ -173,7 +172,7 @@ def register(
         password_hash=hash_password(
             request.password
         ),
-        role=role,
+        role=role.value,
         is_active=True,
         is_verified=False,
     )
@@ -196,11 +195,14 @@ async def send_otp(
     request: OTPSendRequest,
     redis: Redis = Depends(get_redis),
 ):
-
     identifier = (
         request.email.lower().strip()
         if request.email
-        else request.phone
+        else (
+            request.phone.strip()
+            if request.phone
+            else None
+        )
     )
 
     if not identifier:
@@ -211,12 +213,13 @@ async def send_otp(
 
     otp_service = OTPService(redis)
 
-    await otp_service.send_otp(
+    otp = await otp_service.send_otp(
         identifier
     )
 
     return {
-        "message": "OTP sent successfully"
+        "message": "OTP sent successfully",
+        "otp": otp,
     }
 
 
@@ -236,11 +239,14 @@ async def verify_otp(
     ],
     redis: Redis = Depends(get_redis),
 ):
-
     identifier = (
         request.email.lower().strip()
         if request.email
-        else request.phone
+        else (
+            request.phone.strip()
+            if request.phone
+            else None
+        )
     )
 
     if not identifier:
@@ -262,7 +268,10 @@ async def verify_otp(
             detail="Invalid or expired OTP",
         )
 
+    # -----------------------------------------------------
     # Find user
+    # -----------------------------------------------------
+
     user = db.scalar(
         select(User).where(
             (User.email == identifier)
@@ -276,20 +285,26 @@ async def verify_otp(
             detail="User not found",
         )
 
+    # -----------------------------------------------------
     # Verify account
+    # -----------------------------------------------------
+
     user.is_verified = True
 
     db.commit()
 
+    # -----------------------------------------------------
     # Create tokens
-    access_token, refresh_token = create_tokens(
+    # -----------------------------------------------------
+
+    access_token, refresh_token_value = create_tokens(
         user,
         db,
     )
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
+        refresh_token=refresh_token_value,
     )
 
 
@@ -308,42 +323,53 @@ def login(
         Depends(get_db),
     ],
 ):
+    # Login accepts email or phone through
+    # the "identifier" field.
 
-    user = authenticate_user(
-        identifier=request.identifier,
-        password=request.password,
-        db=db,
+    authenticated_user = authenticate_user(
+        request.identifier,
+        request.password,
+        db,
     )
 
-    if not user:
+    if not authenticated_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
-            headers={
-                "WWW-Authenticate": "Bearer"
-            },
         )
 
-    if not user.is_active:
+    # -----------------------------------------------------
+    # Check active status
+    # -----------------------------------------------------
+
+    if not authenticated_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is inactive",
         )
 
-    if not user.is_verified:
+    # -----------------------------------------------------
+    # Check verification status
+    # -----------------------------------------------------
+
+    if not authenticated_user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is not verified",
         )
 
-    access_token, refresh_token = create_tokens(
-        user,
+    # -----------------------------------------------------
+    # Create tokens
+    # -----------------------------------------------------
+
+    access_token, refresh_token_value = create_tokens(
+        authenticated_user,
         db,
     )
 
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
+        refresh_token=refresh_token_value,
     )
 
 
@@ -352,7 +378,7 @@ def login(
 # =========================================================
 
 @router.post(
-    "/logout"
+    "/logout",
 )
 def logout_user(
     request: LogoutRequest,
@@ -365,18 +391,11 @@ def logout_user(
         Depends(get_db),
     ],
 ):
-
-    success = logout(
+    logout(
         refresh_token=request.refresh_token,
         user_id=current_user.id,
         db=db,
     )
-
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or already revoked refresh token",
-        )
 
     return {
         "message": "Logged out successfully"
@@ -388,7 +407,7 @@ def logout_user(
 # =========================================================
 
 @router.post(
-    "/logout-all"
+    "/logout-all",
 )
 def logout_all_devices(
     current_user: Annotated[
@@ -400,7 +419,6 @@ def logout_all_devices(
         Depends(get_db),
     ],
 ):
-
     revoked_count = logout_all(
         user_id=current_user.id,
         db=db,
@@ -428,7 +446,6 @@ async def forgot_password(
     ],
     redis: Redis = Depends(get_redis),
 ):
-
     await start_password_reset(
         db=db,
         redis=redis,
@@ -459,9 +476,7 @@ async def password_reset(
     ],
     redis: Redis = Depends(get_redis),
 ):
-
     try:
-
         await reset_password(
             db=db,
             redis=redis,
@@ -471,7 +486,6 @@ async def password_reset(
         )
 
     except ValueError as exc:
-
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),

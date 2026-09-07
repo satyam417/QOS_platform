@@ -9,6 +9,8 @@ from passlib.context import CryptContext
 from database import engine, Base, SessionLocal
 import models
 
+from app.api.v1.auth import router as auth_router
+from app.api.v1.customer import router as customer_router
 
 app = FastAPI(title="QOS Platform API")
 
@@ -17,36 +19,13 @@ pwd_context = CryptContext(
     deprecated="auto"
 )
 
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
-
-
-# Request ID middleware
-@app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    request_id = str(uuid.uuid4())
-
-    response = await call_next(request)
-
-    response.headers["X-Request-ID"] = request_id
-
-    return response
-
-
-# Database error handler
-@app.exception_handler(IntegrityError)
-async def integrity_error_handler(request: Request, exc: IntegrityError):
-    return JSONResponse(
-        status_code=409,
-        content={
-            "error": "Database constraint violation",
-            "message": "The email may already be registered."
-        }
-    )
 
 
 # Create database tables
@@ -70,11 +49,15 @@ class RegisterRequest(BaseModel):
     role: str
 
 # Login request model
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str
 
 # Home API
+
+
 @app.get("/")
 def home():
     return {
@@ -123,6 +106,8 @@ def register(
     }
 
 # Login API
+
+
 @app.post("/api/v1/auth/login")
 def login(
     user: LoginRequest,

@@ -75,7 +75,7 @@ def get_current_user(
         )
 
     # -----------------------------------------------------
-    # Find user in database
+    # Validate user ID
     # -----------------------------------------------------
 
     try:
@@ -90,6 +90,10 @@ def get_current_user(
                 "WWW-Authenticate": "Bearer"
             },
         )
+
+    # -----------------------------------------------------
+    # Find user in database
+    # -----------------------------------------------------
 
     user = db.scalar(
         select(User).where(
