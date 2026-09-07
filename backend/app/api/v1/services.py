@@ -26,7 +26,6 @@ def _to_response(service: Service) -> ServiceResponse:
     """
     Convert a SQLAlchemy Service model into the API response format.
     """
-
     return ServiceResponse(
         id=service.id,
         vendor_id=service.vendor_id,
@@ -49,7 +48,6 @@ def _handle_service_error(error: Exception) -> None:
     """
     Convert business-layer exceptions into HTTP exceptions.
     """
-
     if isinstance(error, PermissionError):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

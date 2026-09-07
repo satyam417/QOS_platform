@@ -24,6 +24,7 @@ class Category(Base):
         String(100),
         unique=True,
         nullable=False,
+        index=True,
     )
 
     description: Mapped[str | None] = mapped_column(
