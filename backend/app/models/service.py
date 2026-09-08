@@ -1,10 +1,23 @@
+import enum
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+
+
+if TYPE_CHECKING:
+    from app.models.category import Category
+    from app.models.service_pincode import ServicePincode
+    from app.models.vendor import VendorProfile
+
+
+class ServiceStatus(str, enum.Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
 
 
 class Service(Base):
@@ -22,7 +35,7 @@ class Service(Base):
     )
 
     category_id: Mapped[int] = mapped_column(
-        ForeignKey("categories.id", ondelete="CASCADE"),
+        ForeignKey("categories.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
@@ -37,14 +50,19 @@ class Service(Base):
         nullable=True,
     )
 
-    price: Mapped[int] = mapped_column(
-        Integer,
+    price: Mapped[float] = mapped_column(
+        Numeric(10, 2),
         nullable=False,
     )
 
-    is_enabled: Mapped[bool] = mapped_column(
-        Boolean,
-        default=True,
+    duration_minutes: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+
+    status: Mapped[ServiceStatus] = mapped_column(
+        Enum(ServiceStatus),
+        default=ServiceStatus.ACTIVE,
         nullable=False,
     )
 
@@ -59,4 +77,20 @@ class Service(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    vendor: Mapped["VendorProfile"] = relationship(
+        "VendorProfile",
+        back_populates="services",
+    )
+
+    category: Mapped["Category"] = relationship(
+        "Category",
+        back_populates="services",
+    )
+
+    pincodes: Mapped[list["ServicePincode"]] = relationship(
+        "ServicePincode",
+        back_populates="service",
+        cascade="all, delete-orphan",
     )

@@ -15,6 +15,9 @@ from app.models.refresh_token import RefreshToken
 from app.models.vendor import VendorProfile
 from app.models.address import Address
 from app.models.kyc import KYC
+from app.models.category import Category
+from app.models.service import Service
+from app.models.service_pincode import ServicePincode
 
 
 # Alembic Config object

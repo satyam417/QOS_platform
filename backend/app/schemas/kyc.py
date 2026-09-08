@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
@@ -11,9 +12,21 @@ class KYCStatus(str, Enum):
 
 class KYCSubmission(BaseModel):
     document_type: str = Field(
-        ..., description="e.g. 'gst_certificate', 'pan_card', 'business_license'")
+        ...,
+        description="e.g. 'gst_certificate', 'pan_card', 'business_license'",
+    )
     document_reference: str = Field(
-        ..., description="File name or reference — actual storage TBD pending S3/MinIO contract")
+        ...,
+        description="File name or reference — actual storage TBD pending S3/MinIO contract",
+    )
+
+
+class KYCStatusResponse(BaseModel):
+    vendor_id: int
+    kyc_status: KYCStatus
+    document_type: str
+    document_reference: str
+    submitted_at: datetime | None = None
 
 
 class KYCResponse(BaseModel):

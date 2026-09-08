@@ -16,6 +16,7 @@ from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.kyc import KYC, KYCStatus
 from app.models.user import User, UserRole
+from app.models.vendor import VendorProfile
 from app.schemas.kyc import (
     KYCResponse,
     KYCReviewRequest,
@@ -250,16 +251,41 @@ def review_kyc(
             detail="Rejection reason is required",
         )
 
+    # Find the vendor profile.
+    # KYC.vendor_id stores the User.id, while
+    # VendorProfile.user_id also points to User.id.
+    vendor_profile = (
+        db.query(VendorProfile)
+        .filter(
+            VendorProfile.user_id == kyc.vendor_id
+        )
+        .first()
+    )
+
+    if vendor_profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vendor profile not found",
+        )
+
     # If approved, remove rejection reason
     if review.status == KYCStatus.APPROVED:
         kyc.rejection_reason = None
     else:
         kyc.rejection_reason = review.rejection_reason
 
-    # Update KYC status
+    # Update KYC document status
     kyc.status = review.status
 
-    # Save changes
+    # Keep vendor profile KYC status synchronized
+    if review.status == KYCStatus.APPROVED:
+        vendor_profile.kyc_status = KYCStatus.APPROVED
+    elif review.status == KYCStatus.REJECTED:
+        vendor_profile.kyc_status = KYCStatus.REJECTED
+    else:
+        vendor_profile.kyc_status = KYCStatus.PENDING
+
+    # Save both changes
     db.commit()
 
     db.refresh(kyc)

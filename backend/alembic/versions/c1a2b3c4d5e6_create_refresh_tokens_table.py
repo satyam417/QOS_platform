@@ -53,6 +53,13 @@ def upgrade() -> None:
             nullable=True,
         ),
 
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["users.id"],

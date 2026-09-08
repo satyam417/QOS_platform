@@ -1,10 +1,15 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.core.database import Base
+
+
+if TYPE_CHECKING:
+    from app.models.service import Service
 
 
 class Category(Base):
@@ -20,6 +25,11 @@ class Category(Base):
         unique=True,
         nullable=False,
         index=True,
+    )
+
+    description: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
     )
 
     is_active: Mapped[bool] = mapped_column(
@@ -39,4 +49,9 @@ class Category(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    services: Mapped[list["Service"]] = relationship(
+        "Service",
+        back_populates="category",
     )
